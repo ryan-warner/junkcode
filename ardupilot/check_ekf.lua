@@ -54,6 +54,7 @@ function check_ekf()
                 right.channel = right.channel - 1
                 left.channel = left.channel - 1
                 -- Wiggle elevons :)
+                arming:disarm()
                 return wiggle_elevons()
             end
         end
@@ -75,6 +76,8 @@ function wiggle_elevons()
 
         return wiggle_elevons, 350  
     end
+
+    arming:arm()
 end
 
 return check_ekf, 1000
