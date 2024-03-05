@@ -63,7 +63,9 @@ local function build_mission(landing_location, landing_direction)
     local mission_len_leading_offset = 2
     local mission_len_trailing_offset = 1
     local reverse_pattern = ((landing_direction < 0) and { true } or { false })[1]
-    local running_heading = math.abs(landing_direction)
+    local running_heading = math.abs(landing_direction) % 360
+    local landing_offset = math.abs(landing_direction) // 360 -- Offset in m
+
     -- size temp mission to mission length + lead and trail
     local temp_mission = {}
     -- set size
@@ -79,7 +81,7 @@ local function build_mission(landing_location, landing_direction)
     local true_target_wp = back_propagate_waypoint(
         target_wp,
         {
-            distance = 5,
+            distance = landing_offset,
             heading_change = 0,
             alt = 0,
             acceptance_radius = 20,
