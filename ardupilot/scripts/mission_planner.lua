@@ -1,12 +1,11 @@
 local MISSION_OUTLINE = {
     --{distance = 0, heading = 0, alt = 0, acceptance_radius = 20, is_landing = false},
     --{ distance = 76,   heading = 270, alt = 30, acceptance_radius = 20, is_landing = false },
-    { distance = 100,  heading = 180, alt = 30, acceptance_radius = 20, is_landing = false },
-    { distance = 60.4, heading = 120, alt = 30, acceptance_radius = 20, is_landing = false },
-    { distance = 60.8, heading = 60,  alt = 25, acceptance_radius = 30, is_landing = false },
-    { distance = 52.7, heading = 0,   alt = 20, acceptance_radius = 30, is_landing = false },
-    { distance = 53.3, heading = 0,   alt = 15, acceptance_radius = 20, is_landing = false },
-    { distance = 57.8, heading = 0,   alt = 8,  acceptance_radius = 20, is_landing = false },
+    { distance = 100,  heading_change = 60, alt = 30, acceptance_radius = 20, is_landing = false },
+    { distance = 60.4, heading_change = 60, alt = 30, acceptance_radius = 20, is_landing = false },
+    { distance = 60.8, heading_change = 60, alt = 25, acceptance_radius = 30, is_landing = false },
+    { distance = 52.7, heading_change = 0,  alt = 20, acceptance_radius = 30, is_landing = false },
+    { distance = 111.1, heading_change = 0, alt = 15, acceptance_radius = 20, is_landing = false },
     -- {distance = 0, heading = 0, alt = 0, acceptance_radius = 0, is_landing = true}, -- Home!
 }
 
@@ -21,14 +20,14 @@ local LANDING_DIRECTION = 187
 
 local EARTH_RADIUS = 6366707.0195 -- Earth radius in meters
 
-TARGET_LOCATION:lat(334296387)  --7173-- Big int: # * 1e7
-TARGET_LOCATION:lng(-841696981) --7185
+TARGET_LOCATION:lat(334296748)  --7173-- Big int: # * 1e7
+TARGET_LOCATION:lng(-841697205) --7185
 TARGET_LOCATION:alt(0)
 
-local function back_propagate_waypoint(prev_waypoint, waypoint_content, landing_direction)
+local function back_propagate_waypoint(prev_waypoint, waypoint_content, running_heading, reverse_pattern)
     local new_waypoint = mavlink_mission_item_int_t() -- all ints
-    local latitude_offset = -waypoint_content.distance * math.cos(math.rad(waypoint_content.heading + landing_direction))
-    local longitude_offset = -waypoint_content.distance * math.sin(math.rad(waypoint_content.heading + landing_direction))
+    local latitude_offset = -waypoint_content.distance * math.cos(math.rad(((reverse_pattern) and { -waypoint_content.heading_change } or { waypoint_content.heading_change })[1] + running_heading))
+    local longitude_offset = -waypoint_content.distance * math.sin(math.rad(((reverse_pattern) and { -waypoint_content.heading_change } or { waypoint_content.heading_change })[1] + running_heading))
 
     latitude_offset = math.deg(latitude_offset / EARTH_RADIUS)
     longitude_offset = math.deg(longitude_offset / EARTH_RADIUS) /
@@ -63,6 +62,8 @@ local function build_mission(landing_location, landing_direction)
     local mission_len = #MISSION_OUTLINE
     local mission_len_leading_offset = 2
     local mission_len_trailing_offset = 1
+    local reverse_pattern = ((landing_direction < 0) and { true } or { false })[1]
+    local running_heading = math.abs(landing_direction)
     -- size temp mission to mission length + lead and trail
     local temp_mission = {}
     -- set size
@@ -75,8 +76,28 @@ local function build_mission(landing_location, landing_direction)
     local target_wp = add_waypoint(landing_location:lat(), landing_location:lng(), landing_location:alt(), 20, 21,
         mission_len + mission_len_trailing_offset + mission_len_leading_offset)
 
+    local true_target_wp = back_propagate_waypoint(
+        target_wp,
+        {
+            distance = 5,
+            heading_change = 0,
+            alt = 0,
+            acceptance_radius = 20,
+            is_landing = true        
+        },
+        running_heading,
+        reverse_pattern
+    )
+
+    -- Shitty way to offset by x meters 
+    target_wp:x(true_target_wp:x())
+    target_wp:y(true_target_wp:y())
+
+    landing_location:lat(target_wp:x())
+    landing_location:lng(target_wp:y())
+
     -- prepend mission with target location at alt 30
-    local lead_in_wp = add_waypoint(landing_location:lat(), landing_location:lng(), 30, 20, 16, 1)
+    local lead_in_wp = add_waypoint(landing_location:lat(), landing_location:lng(), 10, 20, 16, 1)
     local home_wp = add_waypoint(landing_location:lat(), landing_location:lng(), 0, 20, 16, 0)
 
     -- Add to temp mission
@@ -84,8 +105,9 @@ local function build_mission(landing_location, landing_direction)
     
     -- Build mission from target loc, reverse from landing location
     for i = mission_len, 1, -1 do
-        local waypoint = back_propagate_waypoint(temp_mission[i + mission_len_leading_offset + 1], MISSION_OUTLINE[i], landing_direction)
+        local waypoint = back_propagate_waypoint(temp_mission[i + mission_len_leading_offset + 1], MISSION_OUTLINE[i], running_heading, reverse_pattern)
         temp_mission[i + mission_len_leading_offset] = waypoint
+        running_heading = running_heading + ((reverse_pattern) and { -MISSION_OUTLINE[i].heading_change } or { MISSION_OUTLINE[i].heading_change })[1]
     end
 
     temp_mission[2] = lead_in_wp
